@@ -116,6 +116,35 @@ public final class ParleyBrand {
 		return ret;
 	}
 
+	private static boolean windowIconsInstalled;
+
+	/**
+	 * Gives every Swing window and dialog that has no icon of its own (and no owner with one) the
+	 * Parley app icon, so dialogs never show the Java cup. Call once at startup; later calls do nothing.
+	 *
+	 * @param badge one of {@link #BADGES}, or null for the plain icon
+	 * @throws IllegalArgumentException if {@code badge} is not null and not one of {@link #BADGES}
+	 */
+	public static synchronized void installDefaultWindowIcons(String badge) {
+		if (windowIconsInstalled) {
+			return;
+		}
+		final List<Image> icons = appIcons(badge);
+		windowIconsInstalled = true;
+		java.awt.Toolkit.getDefaultToolkit().addAWTEventListener(e -> {
+			if (e.getID() != java.awt.event.WindowEvent.WINDOW_OPENED || !(e.getSource() instanceof java.awt.Window)) {
+				return;
+			}
+			java.awt.Window w = (java.awt.Window) e.getSource();
+			for (java.awt.Window o = w; o != null; o = o.getOwner()) {
+				if (!o.getIconImages().isEmpty()) {
+					return;
+				}
+			}
+			w.setIconImages(icons);
+		}, java.awt.AWTEvent.WINDOW_EVENT_MASK);
+	}
+
 	/**
 	 * The app icon at the smallest stored size that is at least {@code size} pixels,
 	 * or the largest one if {@code size} is bigger than every stored size.
