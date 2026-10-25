@@ -1,13 +1,16 @@
 package us.bringardner.parley.brand;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.awt.Image;
+import java.awt.event.WindowEvent;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -15,6 +18,7 @@ import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
@@ -159,5 +163,83 @@ class ParleyBrandTest {
 		assertEquals(0xAB8C3C, ParleyBrand.GOLD_MID.getRGB() & 0xFFFFFF);
 		assertEquals(0x876D29, ParleyBrand.GOLD_DARK.getRGB() & 0xFFFFFF);
 		assertEquals(0x372C0F, ParleyBrand.BRONZE.getRGB() & 0xFFFFFF);
+	}
+
+	/**
+	 * The only test that calls installDefaultWindowIcons (it installs a listener for the whole
+	 * JVM): a bad badge is rejected until it is installed, and after that every call does nothing.
+	 */
+	@Test
+	void installDefaultWindowIconsWorksOnce() {
+		assertThrows(IllegalArgumentException.class, () -> ParleyBrand.installDefaultWindowIcons("no-such-badge"));
+		ParleyBrand.installDefaultWindowIcons(null);
+		ParleyBrand.installDefaultWindowIcons(null);
+		// already installed, so the badge is not even looked at
+		ParleyBrand.installDefaultWindowIcons("no-such-badge");
+	}
+
+	/** A stand-in for java.awt.Window, which cannot be created headless. */
+	static class FakeWindow {
+		final FakeWindow owner;
+		List<Image> icons = new ArrayList<>();
+
+		FakeWindow(FakeWindow owner) {
+			this.owner = owner;
+		}
+	}
+
+	private static final List<Image> ICONS = List.of(new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB));
+
+	private static boolean apply(int id, Object source) {
+		return ParleyBrand.applyDefaultIcons(id, source, FakeWindow.class,
+				w -> w.owner, w -> w.icons, (w, i) -> w.icons = i, ICONS);
+	}
+
+	@Test
+	void aWindowWithoutIconsGetsThem() {
+		FakeWindow w = new FakeWindow(null);
+		assertTrue(apply(WindowEvent.WINDOW_OPENED, w));
+		assertSame(ICONS, w.icons);
+	}
+
+	@Test
+	void onlyOpeningAWindowCounts() {
+		FakeWindow w = new FakeWindow(null);
+		assertFalse(apply(WindowEvent.WINDOW_ACTIVATED, w));
+		assertFalse(apply(WindowEvent.WINDOW_CLOSED, w));
+		assertTrue(w.icons.isEmpty());
+	}
+
+	@Test
+	void sourcesThatAreNotWindowsAreIgnored() {
+		assertFalse(apply(WindowEvent.WINDOW_OPENED, "not a window"));
+		assertFalse(apply(WindowEvent.WINDOW_OPENED, null));
+	}
+
+	@Test
+	void aWindowWithItsOwnIconsKeepsThem() {
+		FakeWindow w = new FakeWindow(null);
+		List<Image> own = List.of(new BufferedImage(2, 2, BufferedImage.TYPE_INT_ARGB));
+		w.icons = own;
+		assertFalse(apply(WindowEvent.WINDOW_OPENED, w));
+		assertSame(own, w.icons);
+	}
+
+	@Test
+	void aWindowWhoseOwnerChainHasIconsIsLeftAlone() {
+		FakeWindow top = new FakeWindow(null);
+		top.icons = List.of(new BufferedImage(2, 2, BufferedImage.TYPE_INT_ARGB));
+		FakeWindow middle = new FakeWindow(top);
+		FakeWindow dialog = new FakeWindow(middle);
+		assertFalse(apply(WindowEvent.WINDOW_OPENED, dialog));
+		assertTrue(dialog.icons.isEmpty());
+	}
+
+	@Test
+	void aWindowWhoseOwnersHaveNoIconsGetsThem() {
+		FakeWindow dialog = new FakeWindow(new FakeWindow(new FakeWindow(null)));
+		assertTrue(apply(WindowEvent.WINDOW_OPENED, dialog));
+		assertSame(ICONS, dialog.icons);
+		assertTrue(dialog.owner.icons.isEmpty(), "only the opened window changes");
 	}
 }

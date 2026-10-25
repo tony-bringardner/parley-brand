@@ -131,18 +131,41 @@ public final class ParleyBrand {
 		}
 		final List<Image> icons = appIcons(badge);
 		windowIconsInstalled = true;
-		java.awt.Toolkit.getDefaultToolkit().addAWTEventListener(e -> {
-			if (e.getID() != java.awt.event.WindowEvent.WINDOW_OPENED || !(e.getSource() instanceof java.awt.Window)) {
-				return;
+		java.awt.Toolkit.getDefaultToolkit().addAWTEventListener(
+				e -> applyDefaultIcons(e.getID(), e.getSource(), java.awt.Window.class,
+						java.awt.Window::getOwner, java.awt.Window::getIconImages, java.awt.Window::setIconImages, icons),
+				java.awt.AWTEvent.WINDOW_EVENT_MASK);
+	}
+
+	/**
+	 * The decision behind {@link #installDefaultWindowIcons(String)}: when a window opens and
+	 * neither it nor any owner up its chain has icons, give it {@code icons}. The window operations
+	 * are passed in, so the tests can check every case headless, with stand-ins for windows.
+	 *
+	 * @param <W> the window type ({@link java.awt.Window} in real use)
+	 * @param eventId the event's id; only {@link java.awt.event.WindowEvent#WINDOW_OPENED} is acted on
+	 * @param source the event's source; anything that is not a {@code type} is ignored
+	 * @param type the window class
+	 * @param owner a window's owner, or null at the top of the chain
+	 * @param iconsOf a window's current icon images
+	 * @param setIcons sets a window's icon images
+	 * @param icons the icons to give the window
+	 * @return true if the window was given {@code icons}
+	 */
+	static <W> boolean applyDefaultIcons(int eventId, Object source, Class<W> type,
+			java.util.function.Function<W, W> owner, java.util.function.Function<W, List<Image>> iconsOf,
+			java.util.function.BiConsumer<W, List<Image>> setIcons, List<Image> icons) {
+		if (eventId != java.awt.event.WindowEvent.WINDOW_OPENED || !type.isInstance(source)) {
+			return false;
+		}
+		W w = type.cast(source);
+		for (W o = w; o != null; o = owner.apply(o)) {
+			if (!iconsOf.apply(o).isEmpty()) {
+				return false;
 			}
-			java.awt.Window w = (java.awt.Window) e.getSource();
-			for (java.awt.Window o = w; o != null; o = o.getOwner()) {
-				if (!o.getIconImages().isEmpty()) {
-					return;
-				}
-			}
-			w.setIconImages(icons);
-		}, java.awt.AWTEvent.WINDOW_EVENT_MASK);
+		}
+		setIcons.accept(w, icons);
+		return true;
 	}
 
 	/**
